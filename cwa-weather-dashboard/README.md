@@ -13,12 +13,11 @@
 
 ## 安裝
 
-1. 在 iPhone 的 Scripting 建立一個新的 Script Project，例如命名為 `CWA 天氣中心`。
-2. 將 `index.tsx` 貼入專案的同名檔案。
-3. 新增 `widget.tsx`，再貼入本資料夾的同名檔案。
-4. 執行 `index.tsx`，輸入中央氣象署 API Key。
-5. 按「使用目前位置」或輸入縣市、區／鄉／鎮後，按「儲存並更新」。
-6. 到 iOS 主畫面新增 Scripting Widget，選擇 `CWA 天氣中心`，分別試用小、中、大尺寸。
+1. 將 `CWA Weather Dashboard.scripting` 傳到 iPhone，從「檔案」App 開啟並選擇 Scripting 匯入。
+2. 若要從原始碼匯入，將整個 `cwa-weather-dashboard` 資料夾匯入專案，或依原始結構建立並貼入 `index.tsx`、`widget.tsx`、`lib/weather.ts` 與 `script.json`。
+3. 執行 `index.tsx`，輸入中央氣象署 API Key。
+4. 按「使用目前位置」或輸入縣市、區／鄉／鎮後，按「儲存並更新」。
+5. 到 iOS 主畫面新增 Scripting Widget，選擇 `CWA 天氣中心`，分別試用小、中、大尺寸。
 
 ## 定位權限
 
@@ -34,11 +33,13 @@
 
 ## 私人 GitHub Repository
 
-建議 Repository 只放這三個不含個人資料的檔案：
+建議 Repository 只放下列不含個人資料的檔案，並保留 `lib` 資料夾結構：
 
 ```text
 index.tsx
 widget.tsx
+lib/weather.ts
+script.json
 README.md
 ```
 
@@ -51,4 +52,3 @@ README.md
 - 中央氣象署預報與最近測站觀測是不同資料來源；找不到測站時仍會顯示鄉鎮預報。
 - 雷達縮圖為全臺圖且約每 10 分鐘更新；互動式雷達動畫僅在主頁內。
 - iOS 不保證 Widget 會依程式指定時間執行更新。
-

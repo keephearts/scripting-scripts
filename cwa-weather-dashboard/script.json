@@ -1,0 +1,19 @@
+{
+  "version": "1.0.0",
+  "iconImage": "",
+  "icon": "cloud.sun.rain.fill",
+  "entry": "index.tsx",
+  "intentInputTypes": [],
+  "permissions": null,
+  "remoteResource": null,
+  "localizedNames": {
+    "zh": "CWA 天氣中心"
+  },
+  "color": "rgba(59, 130, 246, 1)",
+  "localizedDescriptions": {
+    "zh": "中央氣象署鄉鎮預報與 iOS 主畫面天氣 Widget。"
+  },
+  "name": "CWA Weather Dashboard",
+  "runInApp": false,
+  "description": "CWA township weather forecast dashboard with iOS Home Screen widgets."
+}
