@@ -7,11 +7,11 @@ import {
   Text,
   VStack,
   Widget,
-  UIImage,
 } from "scripting"
 import {
   CACHE_PATH,
   CONFIG_PATH,
+  districtFromPlacemark,
   fetchForecast,
   formatDay,
   formatHour,
@@ -35,7 +35,7 @@ async function resolveWidgetPlace(config: Config): Promise<Config> {
     const marks = await Location.reverseGeocode({ latitude: location.latitude, longitude: location.longitude, locale: "zh-TW" })
     const mark = marks?.[0]
     const city = normalizeCity(mark?.administrativeArea ?? mark?.locality ?? "")
-    const district = (mark?.subLocality ?? mark?.locality ?? "").trim()
+    const district = districtFromPlacemark(mark, city)
     if (!city || !district) return config
     return { ...config, city, district, latitude: location.latitude, longitude: location.longitude }
   } catch {
@@ -47,18 +47,18 @@ async function resolveWidgetPlace(config: Config): Promise<Config> {
 function HourColumn({ point }: { point: ForecastPoint }) {
   return <VStack spacing={3} frame={{ maxWidth: "infinity" }}>
     <Text font="caption2">{formatHour(point.start)}</Text>
-    <Image systemName={weatherIcon(point.weather)} width={19} />
+    <Image systemName={weatherIcon(point.weather)} frame={{ width: 19, height: 19 }} />
     <Text font="caption" bold>{point.temperature}°</Text>
-    <Text font="caption2" foregroundStyle="secondary">☔ {point.pop}%</Text>
+    <Text font="caption2" foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
   </VStack>
 }
 
 function DayColumn({ point }: { point: ForecastPoint }) {
   return <VStack spacing={3} frame={{ maxWidth: "infinity" }}>
     <Text font="caption" bold>{formatDay(point.start)}</Text>
-    <Image systemName={weatherIcon(point.weather)} width={18} />
+    <Image systemName={weatherIcon(point.weather)} frame={{ width: 18, height: 18 }} />
     <Text font="caption">{point.temperature}°</Text>
-    <Text font="caption2" foregroundStyle="secondary">☔ {point.pop}%</Text>
+    <Text font="caption2" foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
   </VStack>
 }
 
@@ -165,7 +165,14 @@ async function run() {
   }
 
   const family = Widget.family
-  const radar = family === "systemLarge" ? await UIImage.fromURL(RADAR_IMAGE_URL) : null
+  let radar: any = null
+  if (family === "systemLarge") {
+    try {
+      radar = await UIImage.fromURL(RADAR_IMAGE_URL)
+    } catch {
+      // A radar thumbnail should not prevent the weather Widget from rendering.
+    }
+  }
   const content = family === "systemSmall"
     ? <SmallWidget data={data} />
     : family === "systemMedium"

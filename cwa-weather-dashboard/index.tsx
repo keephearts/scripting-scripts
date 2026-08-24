@@ -21,6 +21,7 @@ import {
 import {
   CACHE_PATH,
   CONFIG_PATH,
+  districtFromPlacemark,
   fetchForecast,
   formatDay,
   formatHour,
@@ -59,7 +60,9 @@ async function enrichObservation(data: WeatherData, config: Config): Promise<Wea
     let closest: any = null
     let closestDistance = Number.POSITIVE_INFINITY
     for (const station of stations) {
-      const coordinate = station.GeoInfo?.Coordinates?.[0] ?? station.GeoInfo?.Coordinates?.[1]
+      const coordinate = station.GeoInfo?.Coordinates?.find(
+        (item: any) => item.CoordinateName === "WGS84"
+      ) ?? station.GeoInfo?.Coordinates?.[0]
       const latitude = Number(coordinate?.StationLatitude)
       const longitude = Number(coordinate?.StationLongitude)
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue
@@ -111,17 +114,17 @@ async function resolveCurrentPlace(forceRequest: boolean): Promise<Pick<Config, 
   })
   const mark = marks?.[0]
   const city = normalizeCity(mark?.administrativeArea ?? mark?.locality ?? "")
-  const district = (mark?.subLocality ?? mark?.locality ?? "").trim()
+  const district = districtFromPlacemark(mark, city)
   if (!city || !district) throw new Error("定位成功，但無法辨識區、鄉或鎮；請改用地圖選點或手動輸入")
   return { city, district, latitude: location.latitude, longitude: location.longitude }
 }
 
 function DetailRow({ icon, label, value }: { icon: string; label: string; value: string }) {
   return <HStack>
-    <Image systemName={icon} width={18} />
+    <Image systemName={icon} frame={{ width: 18, height: 18 }} />
     <Text>{label}</Text>
     <Spacer />
-    <Text foregroundStyle="secondary">{value}</Text>
+    <Text foregroundStyle="secondaryLabel">{value}</Text>
   </HStack>
 }
 
@@ -172,7 +175,7 @@ function Dashboard() {
       const marks = await Location.reverseGeocode({ latitude: picked.latitude, longitude: picked.longitude, locale: "zh-TW" })
       const mark = marks?.[0]
       const city = normalizeCity(mark?.administrativeArea ?? mark?.locality ?? "")
-      const district = (mark?.subLocality ?? mark?.locality ?? "").trim()
+      const district = districtFromPlacemark(mark, city)
       if (!city || !district) throw new Error("這個位置無法辨識行政區")
       const next = { ...config, city, district, latitude: picked.latitude, longitude: picked.longitude }
       setConfig(next)
@@ -211,9 +214,9 @@ function Dashboard() {
             <Text font="largeTitle">{weather.observation?.temperature ?? weather.current.temperature}°</Text>
             <VStack alignment="leading" spacing={2}>
               <Text>{weather.current.weather}</Text>
-              <Text font="caption" foregroundStyle="secondary">體感 {weather.current.feelsLike}° · 降雨 {weather.current.pop}%</Text>
+              <Text font="caption" foregroundStyle="secondaryLabel">體感 {weather.current.feelsLike}° · 降雨 {weather.current.pop}%</Text>
             </VStack>
-          </HStack> : <Text foregroundStyle="secondary">請輸入 API Key 後更新資料</Text>}
+          </HStack> : <Text foregroundStyle="secondaryLabel">請輸入 API Key 後更新資料</Text>}
         </VStack>
       </Section>
 
@@ -230,21 +233,21 @@ function Dashboard() {
       <Section header={<Text>未來時段</Text>}>
         {weather?.hourly.slice(0, 6).map(point => <HStack key={point.start}>
           <Text frame={{ width: 44 }} >{formatHour(point.start)}</Text>
-          <Image systemName={weatherIcon(point.weather)} width={22} />
+          <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
           <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
           <Text>{point.temperature}°</Text>
-          <Text foregroundStyle="secondary">☔ {point.pop}%</Text>
-        </HStack>) ?? <Text foregroundStyle="secondary">尚無預報資料</Text>}
+          <Text foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
+        </HStack>) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
 
       <Section header={<Text>未來一週</Text>}>
         {weather?.daily.map(point => <HStack key={point.start}>
           <Text frame={{ width: 48 }}>{formatDay(point.start)}</Text>
-          <Image systemName={weatherIcon(point.weather)} width={22} />
+          <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
           <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
           <Text>{point.temperature}°</Text>
-          <Text foregroundStyle="secondary">☔ {point.pop}%</Text>
-        </HStack>) ?? <Text foregroundStyle="secondary">尚無預報資料</Text>}
+          <Text foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
+        </HStack>) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
 
       <Section header={<Text>雷達回波</Text>} footer={<Text>開啟中央氣象署 QPESUMS，可縮放、切換圖層與查看連續動畫。</Text>}>
