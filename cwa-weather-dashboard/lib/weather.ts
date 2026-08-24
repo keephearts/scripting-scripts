@@ -12,11 +12,20 @@ export type ForecastPoint = {
   end: string
   weather: string
   temperature: string
+  lowTemperature?: string
   feelsLike: string
   pop: string
   humidity: string
   windSpeed: string
   windDirection: string
+  comfort: string
+}
+
+export type HourlyTemperaturePoint = {
+  start: string
+  temperature: string
+  feelsLike: string
+  humidity: string
   comfort: string
 }
 
@@ -26,6 +35,7 @@ export type WeatherData = {
   updatedAt: number
   current: ForecastPoint
   hourly: ForecastPoint[]
+  hourlyTemperature?: HourlyTemperaturePoint[]
   daily: ForecastPoint[]
   observation?: {
     temperature: string
@@ -115,6 +125,13 @@ function firstValue(element: any, index: number, keys: string[]) {
   return "--"
 }
 
+function firstValueAtTime(element: any, time: string, keys: string[]) {
+  const index = (element?.Time ?? []).findIndex(
+    (item: any) => (item.DataTime ?? item.StartTime) === time,
+  )
+  return index >= 0 ? firstValue(element, index, keys) : "--"
+}
+
 function elementByName(elements: any[], name: string) {
   return elements.find(item => item.ElementName === name)
 }
@@ -124,16 +141,37 @@ function pointFrom(elements: any[], index: number): ForecastPoint {
   const temperature = elementByName(elements, "溫度")
   const weatherTime = weather?.Time?.[index]
   const temperatureTime = temperature?.Time?.[index]
+  const start = weatherTime?.StartTime ?? temperatureTime?.DataTime ?? ""
   return {
-    start: weatherTime?.StartTime ?? temperatureTime?.DataTime ?? "",
+    start,
     end: weatherTime?.EndTime ?? "",
     weather: firstValue(weather, index, ["Weather"]),
-    temperature: firstValue(temperature, index, ["Temperature"]),
-    feelsLike: firstValue(elementByName(elements, "體感溫度"), index, ["ApparentTemperature"]),
+    temperature: firstValueAtTime(temperature, start, ["Temperature"]),
+    feelsLike: firstValueAtTime(
+      elementByName(elements, "體感溫度"),
+      start,
+      ["ApparentTemperature"],
+    ),
     pop: firstValue(elementByName(elements, "3小時降雨機率"), index, ["ProbabilityOfPrecipitation"]),
-    humidity: firstValue(elementByName(elements, "相對濕度"), index, ["RelativeHumidity"]),
+    humidity: firstValueAtTime(elementByName(elements, "相對濕度"), start, ["RelativeHumidity"]),
     windSpeed: firstValue(elementByName(elements, "風速"), index, ["WindSpeed"]),
     windDirection: firstValue(elementByName(elements, "風向"), index, ["WindDirection"]),
+    comfort: firstValueAtTime(
+      elementByName(elements, "舒適度指數"),
+      start,
+      ["ComfortIndexDescription", "ComfortIndex"],
+    ),
+  }
+}
+
+function hourlyTemperatureFrom(elements: any[], index: number): HourlyTemperaturePoint {
+  const temperature = elementByName(elements, "溫度")
+  const time = temperature?.Time?.[index]?.DataTime ?? ""
+  return {
+    start: time,
+    temperature: firstValue(temperature, index, ["Temperature"]),
+    feelsLike: firstValue(elementByName(elements, "體感溫度"), index, ["ApparentTemperature"]),
+    humidity: firstValue(elementByName(elements, "相對濕度"), index, ["RelativeHumidity"]),
     comfort: firstValue(elementByName(elements, "舒適度指數"), index, ["ComfortIndexDescription", "ComfortIndex"]),
   }
 }
@@ -149,6 +187,53 @@ export function formatDay(value: string) {
   return new Intl.DateTimeFormat("zh-TW", { weekday: "short" }).format(new Date(value))
 }
 
+function weeklyDataSet(shortDataSet: string) {
+  const prefix = shortDataSet.slice(0, -3)
+  const suffix = Number(shortDataSet.slice(-3)) + 2
+  return prefix + suffix.toString().padStart(3, "0")
+}
+
+function weeklyDailyFrom(elements: any[]): ForecastPoint[] {
+  const weather = elementByName(elements, "天氣現象")
+  const high = elementByName(elements, "最高溫度")
+  const low = elementByName(elements, "最低溫度")
+  const pop = elementByName(elements, "12小時降雨機率")
+  const windSpeed = elementByName(elements, "風速")
+  const windDirection = elementByName(elements, "風向")
+  const comfort = elementByName(elements, "最大舒適度指數")
+  const groups = new Map<string, number[]>()
+
+  for (let index = 0; index < (weather?.Time?.length ?? 0); index++) {
+    const start = weather.Time[index]?.StartTime ?? ""
+    const day = start.slice(0, 10)
+    if (!day) continue
+    const values = groups.get(day) ?? []
+    values.push(index)
+    groups.set(day, values)
+  }
+
+  return Array.from(groups.values()).slice(0, 7).map(indices => {
+    const daytimeIndex = indices.find(index => {
+      const hour = new Date(weather.Time[index]?.StartTime ?? "").getHours()
+      return hour >= 6 && hour < 18
+    }) ?? indices[0]
+    const start = weather.Time[daytimeIndex]?.StartTime ?? ""
+    return {
+      start,
+      end: weather.Time[daytimeIndex]?.EndTime ?? "",
+      weather: firstValue(weather, daytimeIndex, ["Weather"]),
+      temperature: firstValue(high, daytimeIndex, ["MaxTemperature", "Temperature"]),
+      lowTemperature: firstValue(low, daytimeIndex, ["MinTemperature", "Temperature"]),
+      feelsLike: "--",
+      pop: firstValue(pop, daytimeIndex, ["ProbabilityOfPrecipitation"]),
+      humidity: "--",
+      windSpeed: firstValue(windSpeed, daytimeIndex, ["WindSpeed"]),
+      windDirection: firstValue(windDirection, daytimeIndex, ["WindDirection"]),
+      comfort: firstValue(comfort, daytimeIndex, ["ComfortIndexDescription", "ComfortIndex"]),
+    }
+  })
+}
+
 function localizeTown(city: string, district: string) {
   const normalizedCity = normalizeCity(city)
   return { city: normalizedCity, district: district.trim().replace(normalizedCity, "").trim() }
@@ -162,15 +247,25 @@ export async function fetchForecast(config: Config): Promise<WeatherData> {
   const dataSet = FORECAST_DATASETS[place.city]
   if (!dataSet) throw new Error(`尚不支援 ${place.city} 的鄉鎮預報資料`)
 
-  const url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + dataSet
-    + "?Authorization=" + encodeURIComponent(config.apiKey.trim())
-    + "&format=JSON&LocationName=" + encodeURIComponent(place.district)
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`天氣資料 HTTP ${response.status}`)
-  const json = await response.json()
-  if (json.success !== "true" && json.success !== true) throw new Error("中央氣象署未接受此 API Key 或查詢")
+  const fetchDataSet = async (requestedDataSet: string) => {
+    const url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + requestedDataSet
+      + "?Authorization=" + encodeURIComponent(config.apiKey.trim())
+      + "&format=JSON&LocationName=" + encodeURIComponent(place.district)
+    const response = await fetch(url)
+    if (!response.ok) throw new Error("天氣資料 HTTP " + response.status)
+    const json = await response.json()
+    if (json.success !== "true" && json.success !== true) {
+      throw new Error("中央氣象署未接受此 API Key 或查詢")
+    }
+    return json
+  }
 
-  const group = (json.records?.Locations ?? []).find(
+  const [shortJson, weeklyJson] = await Promise.all([
+    fetchDataSet(dataSet),
+    fetchDataSet(weeklyDataSet(dataSet)),
+  ])
+
+  const group = (shortJson.records?.Locations ?? []).find(
     (item: any) => normalizeCity(item.LocationsName ?? "") === place.city,
   )
   const selected = (group?.Location ?? []).find((location: any) => location.LocationName === place.district)
@@ -178,19 +273,31 @@ export async function fetchForecast(config: Config): Promise<WeatherData> {
 
   const elements = selected.WeatherElement ?? []
   const wxCount = elementByName(elements, "天氣現象")?.Time?.length ?? 0
-  if (!wxCount) throw new Error("中央氣象署回傳的預報格式不完整")
+  const hourlyCount = elementByName(elements, "溫度")?.Time?.length ?? 0
+  if (!wxCount || hourlyCount < 8) throw new Error("中央氣象署回傳的短期預報格式不完整")
   const points = Array.from({ length: wxCount }, (_, index) => pointFrom(elements, index))
-  const daily = points.filter((point, index) => {
-    if (index === 0) return true
-    return new Date(point.start).getDate() !== new Date(points[index - 1].start).getDate()
-  }).slice(0, 7)
+  const hourlyTemperature = Array.from(
+    { length: hourlyCount },
+    (_, index) => hourlyTemperatureFrom(elements, index),
+  ).filter(point => point.start).slice(0, 8)
+
+  const weeklyGroup = (weeklyJson.records?.Locations ?? []).find(
+    (item: any) => normalizeCity(item.LocationsName ?? "") === place.city,
+  )
+  const weeklySelected = (weeklyGroup?.Location ?? []).find(
+    (location: any) => location.LocationName === place.district,
+  )
+  if (!weeklySelected) throw new Error("找不到七日預報資料")
+  const daily = weeklyDailyFrom(weeklySelected.WeatherElement ?? [])
+  if (daily.length < 7) throw new Error("中央氣象署回傳的七日預報格式不完整")
 
   return {
     city: normalizeCity(group?.LocationsName ?? place.city),
     district: selected.LocationName,
     updatedAt: Date.now(),
     current: points[0],
-    hourly: points.slice(0, 8),
+    hourly: points.slice(0, 3),
+    hourlyTemperature,
     daily,
   }
 }

@@ -187,7 +187,11 @@ function Dashboard() {
   }
 
   async function openRadar() {
-    await Safari.present(RADAR_URL)
+    try {
+      await Safari.present(RADAR_URL, false)
+    } catch (error: any) {
+      setStatus("開啟雷達回波失敗：" + (error?.message ?? String(error)))
+    }
   }
 
   async function requestBackgroundLocationPermission() {
@@ -231,13 +235,18 @@ function Dashboard() {
       </Section>
 
       <Section header={<Text>未來時段</Text>}>
-        {weather?.hourly.slice(0, 6).map(point => <HStack key={point.start}>
-          <Text frame={{ width: 44 }} >{formatHour(point.start)}</Text>
-          <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
-          <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
-          <Text>{point.temperature}°</Text>
-          <Text foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
-        </HStack>) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
+        {weather?.hourlyTemperature?.slice(0, 8).map(point => {
+          const forecast = weather.hourly.find(item => item.start === point.start)
+          return <HStack key={point.start}>
+            <Text frame={{ width: 44 }} >{formatHour(point.start)}</Text>
+            {forecast
+              ? <Image systemName={weatherIcon(forecast.weather)} frame={{ width: 22, height: 22 }} />
+              : <Text frame={{ width: 22 }}>—</Text>}
+            <Text frame={{ maxWidth: "infinity" }}>{forecast?.weather ?? "逐時溫度"}</Text>
+            <Text>{point.temperature}°</Text>
+            <Text foregroundStyle="secondaryLabel">{forecast ? "☔ " + forecast.pop + "%" : ""}</Text>
+          </HStack>
+        }) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
 
       <Section header={<Text>未來一週</Text>}>
@@ -245,7 +254,7 @@ function Dashboard() {
           <Text frame={{ width: 48 }}>{formatDay(point.start)}</Text>
           <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
           <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
-          <Text>{point.temperature}°</Text>
+          <Text>{point.lowTemperature ? point.lowTemperature + "–" + point.temperature + "°" : point.temperature + "°"}</Text>
           <Text foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
         </HStack>) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>

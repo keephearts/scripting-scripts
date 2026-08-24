@@ -1,8 +1,6 @@
 import {
   HStack,
   Image,
-  Link,
-  Script,
   Spacer,
   Text,
   VStack,
@@ -24,8 +22,6 @@ import {
   type WeatherData,
 } from "./lib/weather"
 
-const RADAR_IMAGE_URL = "https://cwaopendata.s3.ap-northeast-1.amazonaws.com/Observation/O-A0058-001.png"
-
 async function resolveWidgetPlace(config: Config): Promise<Config> {
   // A Widget never prompts for permission. iOS decides whether this widget is eligible.
   if (!config.autoLocate || !Location.isAuthorizedForWidgetUpdates) return config
@@ -44,21 +40,37 @@ async function resolveWidgetPlace(config: Config): Promise<Config> {
 }
 
 
-function HourColumn({ point }: { point: ForecastPoint }) {
-  return <VStack spacing={3} frame={{ maxWidth: "infinity" }}>
+type TemperaturePoint = Pick<ForecastPoint, "start" | "temperature">
+
+function nextEightHours(data: WeatherData): TemperaturePoint[] {
+  return data.hourlyTemperature?.slice(0, 8) ?? data.hourly.slice(0, 8)
+}
+
+function weatherAt(data: WeatherData, start: string) {
+  return data.hourly.find(point => point.start === start)
+}
+
+function HourlyTemperatureColumn({ data, point }: { data: WeatherData; point: TemperaturePoint }) {
+  const forecast = weatherAt(data, point.start)
+  return <VStack spacing={2} frame={{ maxWidth: "infinity" }}>
     <Text font="caption2">{formatHour(point.start)}</Text>
-    <Image systemName={weatherIcon(point.weather)} frame={{ width: 19, height: 19 }} />
+    {forecast
+      ? <Image systemName={weatherIcon(forecast.weather)} frame={{ width: 15, height: 15 }} />
+      : <Text font="caption2"> </Text>}
     <Text font="caption" bold>{point.temperature}°</Text>
-    <Text font="caption2" foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
+    <Text font="caption2" foregroundStyle="#aab8cd">{forecast ? forecast.pop + "%" : " "}</Text>
   </VStack>
 }
 
 function DayColumn({ point }: { point: ForecastPoint }) {
-  return <VStack spacing={3} frame={{ maxWidth: "infinity" }}>
-    <Text font="caption" bold>{formatDay(point.start)}</Text>
-    <Image systemName={weatherIcon(point.weather)} frame={{ width: 18, height: 18 }} />
-    <Text font="caption">{point.temperature}°</Text>
-    <Text font="caption2" foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
+  const range = point.lowTemperature
+    ? point.lowTemperature + "–" + point.temperature + "°"
+    : point.temperature + "°"
+  return <VStack spacing={2} frame={{ maxWidth: "infinity" }}>
+    <Text font="caption2" bold>{formatDay(point.start)}</Text>
+    <Image systemName={weatherIcon(point.weather)} frame={{ width: 17, height: 17 }} />
+    <Text font="caption2">{range}</Text>
+    <Text font="caption2" foregroundStyle="#aab8cd">{point.pop === "--" ? " " : point.pop + "%"}</Text>
   </VStack>
 }
 
@@ -82,7 +94,11 @@ function SmallWidget({ data }: { data: WeatherData }) {
 }
 
 function MediumWidget({ data }: { data: WeatherData }) {
-  return <VStack alignment="leading" spacing={8} padding={14} background="#111827" foregroundStyle="white">
+  const hours = nextEightHours(data)
+  const hourTitle = hours.length >= 8
+    ? "未來 8 小時溫度・每 3 小時天氣"
+    : "目前可用預報"
+  return <VStack alignment="leading" spacing={7} padding={14} background="#17243b" foregroundStyle="white">
     <HStack>
       <VStack alignment="leading" spacing={2}>
         <Text font="headline">{data.city}{data.district}</Text>
@@ -92,38 +108,50 @@ function MediumWidget({ data }: { data: WeatherData }) {
       <Image systemName={weatherIcon(data.current.weather)} imageScale="large" />
       <Text font="title">{data.observation?.temperature ?? data.current.temperature}°</Text>
     </HStack>
-    <HStack>{data.hourly.slice(0, 4).map(point => <HourColumn key={point.start} point={point} />)}</HStack>
+    <Text font="caption2" foregroundStyle="#b7c6db">{hourTitle}</Text>
+    <HStack>{hours.map(point => <HourlyTemperatureColumn key={point.start} data={data} point={point} />)}</HStack>
     <HStack>
       <Text font="caption">💧 {data.observation?.humidity ?? data.current.humidity}%</Text>
       <Spacer />
       <Text font="caption">💨 {data.observation?.windSpeed ?? data.current.windSpeed} m/s</Text>
       <Spacer />
-      <Text font="caption">☔ {data.current.pop}%</Text>
+      <Text font="caption">雨量 {data.observation?.rain ?? "--"} mm</Text>
     </HStack>
   </VStack>
 }
 
-function LargeWidget({ data, radar }: { data: WeatherData; radar: any }) {
-  return <VStack alignment="leading" spacing={7} padding={14} background="#111827" foregroundStyle="white">
-    <HStack>
-      <VStack alignment="leading" spacing={2}>
-        <Text font="headline">{data.city}{data.district}</Text>
-        <Text font="caption" foregroundStyle="#cbd5e1">{data.current.weather} · {data.current.comfort}</Text>
+function LargeWidget({ data }: { data: WeatherData }) {
+  const hours = nextEightHours(data)
+  const hourTitle = hours.length >= 8
+    ? "未來 8 小時溫度・每 3 小時天氣"
+    : "目前可用預報"
+  const dailyTitle = data.daily.length >= 7 ? "未來七日" : "目前可用預報"
+  return <VStack alignment="leading" spacing={0} background="#101a2d" foregroundStyle="white" frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
+    <HStack padding={16}>
+      <VStack alignment="leading" spacing={3}>
+        <Text font="title2" bold>{data.city}{data.district}</Text>
+        <Text font="caption" foregroundStyle="#d1dced">{data.current.weather} · 體感 {data.current.feelsLike}°</Text>
       </VStack>
       <Spacer />
-      <Image systemName={weatherIcon(data.current.weather)} imageScale="large" />
-      <Text font="title">{data.observation?.temperature ?? data.current.temperature}°</Text>
+      <VStack alignment="trailing" spacing={6}>
+        <HStack>
+          <Image systemName={weatherIcon(data.current.weather)} frame={{ width: 34, height: 34 }} />
+          <Text font="largeTitle">{data.observation?.temperature ?? data.current.temperature}°</Text>
+        </HStack>
+        <Text font="caption" foregroundStyle="#d1dced">濕度 {data.observation?.humidity ?? data.current.humidity}% · 風 {data.observation?.windSpeed ?? data.current.windSpeed} m/s</Text>
+        <Text font="caption" foregroundStyle="#d1dced">雨量 {data.observation?.rain ?? "--"} mm · 氣壓 {data.observation?.pressure ?? "--"} hPa</Text>
+      </VStack>
     </HStack>
-    <HStack>{data.hourly.slice(0, 6).map(point => <HourColumn key={point.start} point={point} />)}</HStack>
-    <HStack>
-      <Text font="caption">濕度 {data.observation?.humidity ?? data.current.humidity}%</Text>
-      <Spacer />
-      <Text font="caption">風 {data.observation?.windSpeed ?? data.current.windSpeed} m/s</Text>
-      <Spacer />
-      <Text font="caption">雨量 {data.observation?.rain ?? "--"} mm</Text>
-    </HStack>
-    {radar ? <Image image={radar} resizable scaleToFit frame={{ height: 104, maxWidth: "infinity" }} /> : <Text font="caption" foregroundStyle="#cbd5e1">雷達縮圖暫時無法載入</Text>}
-    <HStack>{data.daily.slice(0, 5).map(point => <DayColumn key={point.start} point={point} />)}</HStack>
+    <VStack alignment="leading" spacing={6} padding={14} background="#142039">
+      <Text font="caption2" foregroundStyle="#b7c6db">{hourTitle}</Text>
+      <HStack>{hours.map(point => <HourlyTemperatureColumn key={point.start} data={data} point={point} />)}</HStack>
+    </VStack>
+    <Spacer />
+    <VStack alignment="leading" spacing={7} padding={14}>
+      <Text font="caption2" foregroundStyle="#b7c6db">{dailyTitle}</Text>
+      <HStack>{data.daily.slice(0, 7).map(point => <DayColumn key={point.start} point={point} />)}</HStack>
+      <Text font="caption2" foregroundStyle="#94a3b8">更新 {new Date(data.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</Text>
+    </VStack>
   </VStack>
 }
 
@@ -140,7 +168,6 @@ async function run() {
   let config = readJson<Config>(CONFIG_PATH)
   if (!config?.apiKey) {
     Widget.present(<MissingWidget message="尚未完成設定" />)
-    Script.exit()
     return
   }
 
@@ -160,26 +187,16 @@ async function run() {
 
   if (!data) {
     Widget.present(<MissingWidget message="暫時無法取得天氣資料" />, { policy: "after", date: new Date(Date.now() + 15 * 60 * 1000) })
-    Script.exit()
     return
   }
 
   const family = Widget.family
-  let radar: any = null
-  if (family === "systemLarge") {
-    try {
-      radar = await UIImage.fromURL(RADAR_IMAGE_URL)
-    } catch {
-      // A radar thumbnail should not prevent the weather Widget from rendering.
-    }
-  }
   const content = family === "systemSmall"
     ? <SmallWidget data={data} />
     : family === "systemMedium"
       ? <MediumWidget data={data} />
-      : <LargeWidget data={data} radar={radar} />
+      : <LargeWidget data={data} />
   Widget.present(content, { policy: "after", date: new Date(Date.now() + 15 * 60 * 1000) })
-  Script.exit()
 }
 
 run()
