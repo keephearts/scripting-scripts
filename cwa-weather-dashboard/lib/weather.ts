@@ -5,6 +5,9 @@ export type Config = {
   latitude?: number
   longitude?: number
   autoLocate: boolean
+  aiBaseUrl?: string
+  aiApiKey?: string
+  aiModel?: string
 }
 
 export type ForecastPoint = {
@@ -27,6 +30,8 @@ export type HourlyTemperaturePoint = {
   feelsLike: string
   humidity: string
   comfort: string
+  weather: string
+  pop: string
 }
 
 export type WeatherData = {
@@ -46,6 +51,10 @@ export type WeatherData = {
     rain: string
     station: string
   }
+  weatherHelperOverview?: string
+  aiSummary?: string
+  aiSummarySource?: string
+  weatherHelperSource?: "ai" | "official"
 }
 
 export const DATA_DIR = FileManager.appGroupDocumentsDirectory + "/CWAWeatherDashboard"
@@ -75,6 +84,31 @@ const FORECAST_DATASETS: Record<string, string> = {
   "臺南市": "F-D0047-077",
   "連江縣": "F-D0047-081",
   "金門縣": "F-D0047-085",
+}
+
+const WEATHER_HELPER_DATASETS: Record<string, string> = {
+  "臺北市": "F-C0032-009",
+  "新北市": "F-C0032-010",
+  "基隆市": "F-C0032-011",
+  "花蓮縣": "F-C0032-012",
+  "宜蘭縣": "F-C0032-013",
+  "金門縣": "F-C0032-014",
+  "澎湖縣": "F-C0032-015",
+  "臺南市": "F-C0032-016",
+  "高雄市": "F-C0032-017",
+  "嘉義縣": "F-C0032-018",
+  "嘉義市": "F-C0032-019",
+  "苗栗縣": "F-C0032-020",
+  "臺中市": "F-C0032-021",
+  "桃園市": "F-C0032-022",
+  "新竹縣": "F-C0032-023",
+  "新竹市": "F-C0032-024",
+  "屏東縣": "F-C0032-025",
+  "南投縣": "F-C0032-026",
+  "臺東縣": "F-C0032-027",
+  "彰化縣": "F-C0032-028",
+  "雲林縣": "F-C0032-029",
+  "連江縣": "F-C0032-030",
 }
 
 export function readJson<T>(path: string): T | null {
@@ -132,6 +166,17 @@ function firstValueAtTime(element: any, time: string, keys: string[]) {
   return index >= 0 ? firstValue(element, index, keys) : "--"
 }
 
+function firstValueInTimeRange(element: any, time: string, keys: string[]) {
+  const target = new Date(time).getTime()
+  const index = (element?.Time ?? []).findIndex((item: any) => {
+    const start = new Date(item.StartTime ?? item.DataTime ?? "").getTime()
+    const end = new Date(item.EndTime ?? "").getTime()
+    return Number.isFinite(target) && Number.isFinite(start) && target >= start
+      && (!Number.isFinite(end) || target < end)
+  })
+  return index >= 0 ? firstValue(element, index, keys) : "--"
+}
+
 function elementByName(elements: any[], name: string) {
   return elements.find(item => item.ElementName === name)
 }
@@ -173,6 +218,8 @@ function hourlyTemperatureFrom(elements: any[], index: number): HourlyTemperatur
     feelsLike: firstValue(elementByName(elements, "體感溫度"), index, ["ApparentTemperature"]),
     humidity: firstValue(elementByName(elements, "相對濕度"), index, ["RelativeHumidity"]),
     comfort: firstValue(elementByName(elements, "舒適度指數"), index, ["ComfortIndexDescription", "ComfortIndex"]),
+    weather: firstValueInTimeRange(elementByName(elements, "天氣現象"), time, ["Weather"]),
+    pop: firstValueInTimeRange(elementByName(elements, "3小時降雨機率"), time, ["ProbabilityOfPrecipitation"]),
   }
 }
 
@@ -239,7 +286,90 @@ function localizeTown(city: string, district: string) {
   return { city: normalizedCity, district: district.trim().replace(normalizedCity, "").trim() }
 }
 
-export async function fetchForecast(config: Config): Promise<WeatherData> {
+async function fetchDataSet(dataSet: string, apiKey: string, locationName?: string) {
+  const url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + dataSet
+    + "?Authorization=" + encodeURIComponent(apiKey.trim()) + "&format=JSON"
+    + (locationName ? "&LocationName=" + encodeURIComponent(locationName) : "")
+  const response = await fetch(url)
+  if (!response.ok) throw new Error("天氣資料 HTTP " + response.status)
+  const json = await response.json()
+  if (json.success !== undefined && json.success !== "true" && json.success !== true) {
+    throw new Error("中央氣象署未接受此 API Key 或查詢")
+  }
+  return json
+}
+
+function helperLocations(json: any): any[] {
+  const records = json.records ?? json.cwaopendata?.Dataset ?? json.cwbopendata?.dataset
+  const locations = records?.location ?? records?.Location ?? records?.Locations?.Location
+    ?? records?.Locations?.[0]?.Location ?? []
+  return Array.isArray(locations) ? locations : [locations]
+}
+
+function helperDescriptions(location: any): string[] {
+  const elements = location?.weatherElement ?? location?.WeatherElement ?? []
+  const element = elements.find((item: any) => (item.elementName ?? item.ElementName) === "天氣預報綜合描述")
+  const values = element?.elementValue ?? element?.ElementValue ?? []
+  return (Array.isArray(values) ? values : [values])
+    .flatMap((value: any) => value?.weatherDescription ?? value?.WeatherDescription ?? [])
+    .filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim()))
+}
+
+async function fetchWeatherHelper(config: Config) {
+  const dataSet = WEATHER_HELPER_DATASETS[normalizeCity(config.city)]
+  if (!dataSet) return { overview: "", national: "" }
+  const [cityJson, nationalJson] = await Promise.all([
+    fetchDataSet(dataSet, config.apiKey),
+    fetchDataSet("F-C0032-031", config.apiKey),
+  ])
+  const city = normalizeCity(config.city)
+  const cityLocation = helperLocations(cityJson).find(
+    location => normalizeCity(location.locationName ?? location.LocationName ?? "") === city,
+  )
+  const overview = helperDescriptions(cityLocation)[0] ?? ""
+  const nationalLocations = helperLocations(nationalJson)
+  const nationalLocation = nationalLocations.find(
+    location => normalizeCity(location.locationName ?? location.LocationName ?? "") === city,
+  )
+  const national = nationalLocation
+    ? helperDescriptions(nationalLocation).join("\n")
+    : nationalLocations.flatMap(helperDescriptions).filter(text => text.includes(city)).join("\n")
+  return { overview, national }
+}
+
+function aiConfiguration(config: Config) {
+  const baseUrl = config.aiBaseUrl?.trim().replace(/\/+$/, "") ?? ""
+  const apiKey = config.aiApiKey?.trim() ?? ""
+  const model = config.aiModel?.trim() ?? ""
+  return baseUrl && apiKey && model ? { baseUrl, apiKey, model } : null
+}
+
+async function summarizeWithAi(config: Config, data: WeatherData, source: string) {
+  const ai = aiConfiguration(config)
+  if (!ai || !source) return undefined
+  const response = await fetch(ai.baseUrl + "/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + ai.apiKey,
+    },
+    body: JSON.stringify({
+      model: ai.model,
+      messages: [{
+        role: "user",
+        content: "請依下列中央氣象署資料，為「" + data.city + data.district
+          + "」產生繁體中文天氣建議。只回傳一到兩句、合計不超過 72 個字；不要編造資料。\n\n" + source,
+      }],
+      max_tokens: 120,
+    }),
+  })
+  if (!response.ok) throw new Error("AI HTTP " + response.status)
+  const json = await response.json()
+  const summary = String(json.choices?.[0]?.message?.content ?? "").trim()
+  return summary || undefined
+}
+
+export async function fetchForecast(config: Config, cached?: WeatherData): Promise<WeatherData> {
   if (!config.apiKey.trim()) throw new Error("請先輸入中央氣象署 API Key")
   if (!config.district.trim()) throw new Error("請輸入區、鄉或鎮")
 
@@ -247,22 +377,14 @@ export async function fetchForecast(config: Config): Promise<WeatherData> {
   const dataSet = FORECAST_DATASETS[place.city]
   if (!dataSet) throw new Error(`尚不支援 ${place.city} 的鄉鎮預報資料`)
 
-  const fetchDataSet = async (requestedDataSet: string) => {
-    const url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + requestedDataSet
-      + "?Authorization=" + encodeURIComponent(config.apiKey.trim())
-      + "&format=JSON&LocationName=" + encodeURIComponent(place.district)
-    const response = await fetch(url)
-    if (!response.ok) throw new Error("天氣資料 HTTP " + response.status)
-    const json = await response.json()
-    if (json.success !== "true" && json.success !== true) {
-      throw new Error("中央氣象署未接受此 API Key 或查詢")
-    }
+  const fetchTownForecast = async (requestedDataSet: string) => {
+    const json = await fetchDataSet(requestedDataSet, config.apiKey, place.district)
     return json
   }
 
   const [shortJson, weeklyJson] = await Promise.all([
-    fetchDataSet(dataSet),
-    fetchDataSet(weeklyDataSet(dataSet)),
+    fetchTownForecast(dataSet),
+    fetchTownForecast(weeklyDataSet(dataSet)),
   ])
 
   const group = (shortJson.records?.Locations ?? []).find(
@@ -291,7 +413,7 @@ export async function fetchForecast(config: Config): Promise<WeatherData> {
   const daily = weeklyDailyFrom(weeklySelected.WeatherElement ?? [])
   if (daily.length < 7) throw new Error("中央氣象署回傳的七日預報格式不完整")
 
-  return {
+  const data: WeatherData = {
     city: normalizeCity(group?.LocationsName ?? place.city),
     district: selected.LocationName,
     updatedAt: Date.now(),
@@ -300,4 +422,17 @@ export async function fetchForecast(config: Config): Promise<WeatherData> {
     hourlyTemperature,
     daily,
   }
+  const helper = await fetchWeatherHelper(config).catch(() => ({ overview: "", national: "" }))
+  const cachedPlaceMatches = cached?.city === data.city && cached?.district === data.district
+  const overview = helper.overview || (cachedPlaceMatches ? cached?.weatherHelperOverview : undefined)
+  const source = overview
+    ? [data.city, data.district, overview, helper.national].filter(Boolean).join("\n")
+    : ""
+  const ai = aiConfiguration(config)
+  const aiSummarySource = ai && source ? ai.baseUrl + "\n" + ai.model + "\n" + source : undefined
+  const aiSummary = aiSummarySource === cached?.aiSummarySource
+    ? cached?.aiSummary
+    : await summarizeWithAi(config, data, source).catch(() => undefined)
+  const weatherHelperSource = aiSummary ? "ai" : overview ? "official" : undefined
+  return { ...data, weatherHelperOverview: overview, aiSummary, aiSummarySource: aiSummary ? aiSummarySource : undefined, weatherHelperSource }
 }

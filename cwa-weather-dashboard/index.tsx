@@ -38,6 +38,7 @@ import {
 // API key and location are stored only in Scripting's App Group, never in GitHub.
 
 const RADAR_URL = "https://qpeplus.cwa.gov.tw/"
+const CWA_AUTHORIZATION_URL = "https://pweb.cwa.gov.tw/emember/register/authorization"
 
 function defaultConfig(): Config {
   return { apiKey: "", city: "臺中市", district: "北區", autoLocate: true }
@@ -151,12 +152,22 @@ function Dashboard() {
           // Automatic positioning is best-effort. Keep the last known town on failure.
         }
       }
-      const forecast = await enrichObservation(await fetchForecast(nextConfig), nextConfig)
+      const forecast = await enrichObservation(await fetchForecast(nextConfig, weather ?? undefined), nextConfig)
       setWeather(forecast)
       writeJson(CACHE_PATH, forecast)
       writeJson(CONFIG_PATH, nextConfig)
       await Widget.reloadUserWidgets()
-      setStatus(`已更新 ${new Date(forecast.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}`)
+      const aiConfigured = Boolean(nextConfig.aiBaseUrl?.trim() && nextConfig.aiApiKey?.trim() && nextConfig.aiModel?.trim())
+      const helperStatus = forecast.weatherHelperSource === "ai"
+        ? " · AI 摘要已更新"
+        : forecast.weatherHelperOverview
+          ? aiConfigured
+            ? " · AI 摘要未取得，顯示官方概況"
+            : " · 顯示官方天氣概況"
+          : aiConfigured
+            ? " · AI 與官方天氣概況暫時無法取得"
+            : " · 官方天氣概況暫時無法取得"
+      setStatus(`已更新 ${new Date(forecast.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}${helperStatus}`)
     } catch (error: any) {
       setStatus("更新失敗：" + (error?.message ?? String(error)))
     } finally {
@@ -191,6 +202,14 @@ function Dashboard() {
       await Safari.present(RADAR_URL, false)
     } catch (error: any) {
       setStatus("開啟雷達回波失敗：" + (error?.message ?? String(error)))
+    }
+  }
+
+  async function openCwaAuthorization() {
+    try {
+      await Safari.present(CWA_AUTHORIZATION_URL, false)
+    } catch (error: any) {
+      setStatus("開啟 CWA API Key 申請頁失敗：" + (error?.message ?? String(error)))
     }
   }
 
@@ -236,15 +255,12 @@ function Dashboard() {
 
       <Section header={<Text>未來時段</Text>}>
         {weather?.hourlyTemperature?.slice(0, 8).map(point => {
-          const forecast = weather.hourly.find(item => item.start === point.start)
           return <HStack key={point.start}>
             <Text frame={{ width: 44 }} >{formatHour(point.start)}</Text>
-            {forecast
-              ? <Image systemName={weatherIcon(forecast.weather)} frame={{ width: 22, height: 22 }} />
-              : <Text frame={{ width: 22 }}>—</Text>}
-            <Text frame={{ maxWidth: "infinity" }}>{forecast?.weather ?? "逐時溫度"}</Text>
+            <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
+            <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
             <Text>{point.temperature}°</Text>
-            <Text foregroundStyle="secondaryLabel">{forecast ? "☔ " + forecast.pop + "%" : ""}</Text>
+            <Text foregroundStyle="secondaryLabel">{point.pop === "--" ? "" : "☔ " + point.pop + "%"}</Text>
           </HStack>
         }) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
@@ -263,11 +279,17 @@ function Dashboard() {
         <Button title="查看雷達回波" systemImage="dot.radiowaves.left.and.right" action={openRadar} />
       </Section>
 
-      <Section header={<Text>設定</Text>} footer={<Text>API Key 和定位快取只存於本機；不要提交到 GitHub。</Text>}>
+      <Section header={<Text>設定</Text>} footer={<Text>API Key 和定位快取只存於本機；不要提交到 GitHub。啟用 AI 時會把縣市、鄉鎮與 CWA 預報文字傳送至你指定的服務。</Text>}>
         <SecureField title="CWA API Key" value={config.apiKey} onChanged={value => setConfig({ ...config, apiKey: value })} prompt="CWA-..." />
+        <Button title="申請 CWA API Key" systemImage="person.badge.key.fill" action={openCwaAuthorization} />
+        <TextField title="AI Base URL" value={config.aiBaseUrl ?? ""} onChanged={value => setConfig({ ...config, aiBaseUrl: value })} prompt="https://api.example.com/v1" />
+        <SecureField title="AI API Key" value={config.aiApiKey ?? ""} onChanged={value => setConfig({ ...config, aiApiKey: value })} prompt="sk-..." />
+        <TextField title="AI Model" value={config.aiModel ?? ""} onChanged={value => setConfig({ ...config, aiModel: value })} prompt="gpt-4.1-mini" />
+        <Text font="caption" foregroundStyle="secondaryLabel">三項都填寫才會啟用 AI；請填 Base URL，不需輸入 /chat/completions。未啟用時顯示官方天氣概況。</Text>
         <TextField title="縣市" value={config.city} onChanged={value => setConfig({ ...config, city: value })} />
         <TextField title="區、鄉或鎮" value={config.district} onChanged={value => setConfig({ ...config, district: value })} />
         <Toggle title="Widget 自動定位" value={config.autoLocate} onChanged={value => setConfig({ ...config, autoLocate: value })} />
+        <Text font="caption" foregroundStyle="secondaryLabel">Widget 自動定位需先按下方按鈕，並在 iOS 設定將 Scripting 定位權限設為「永遠」。</Text>
         <Button title="啟用背景定位權限" systemImage="location.circle.fill" action={requestBackgroundLocationPermission} />
         <Button title="使用目前位置" systemImage="location.fill" disabled={loading} action={() => refresh({ locate: true, force: true })} />
         <Button title="在地圖上選位置" systemImage="map.fill" disabled={loading} action={locateFromMap} />

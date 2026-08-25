@@ -15,7 +15,7 @@
 
 1. 將 `CWA Weather Dashboard.scripting` 傳到 iPhone，從「檔案」App 開啟並選擇 Scripting 匯入。
 2. 若要從原始碼匯入，將整個 `cwa-weather-dashboard` 資料夾匯入專案，或依原始結構建立並貼入 `index.tsx`、`widget.tsx`、`lib/weather.ts` 與 `script.json`。
-3. 執行 `index.tsx`，輸入中央氣象署 API Key。
+3. 執行 `index.tsx`，輸入中央氣象署 API Key；可按「申請 CWA API Key」開啟授權碼申請頁。
 4. 按「使用目前位置」或輸入縣市、區／鄉／鎮後，按「儲存並更新」。
 5. 到 iOS 主畫面新增 Scripting Widget，選擇 `CWA 天氣中心`，分別試用小、中、大尺寸。
 
@@ -30,6 +30,12 @@
 ## 中央氣象署 API Key
 
 向中央氣象署開放資料平臺申請 API Key。Key 只會保存在 iPhone 的 Scripting App Group 資料夾；不要放在原始碼、README、截圖或 GitHub Commit。
+
+## AI 天氣小幫手（選用）
+
+可在設定頁填入 OpenAI-compatible 服務的 Base URL、API Key 與 Model。Base URL 例如 `https://api.example.com/v1`，不用輸入 `/chat/completions`。三項都填寫時，Large Widget 會將所在地的縣市／鄉鎮與中央氣象署預報文字傳至你指定的服務，產生一至兩句摘要；未設定或摘要失敗時，改顯示中央氣象署官方天氣概況。
+
+AI API Key 同樣只保存在 iPhone 的 Scripting App Group 資料夾，但目前並非加密保存；請只使用你信任的裝置與服務，且不要匯出或提交設定檔。
 
 ## 私人 GitHub Repository
 
