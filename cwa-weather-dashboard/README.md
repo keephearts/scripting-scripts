@@ -10,6 +10,7 @@
 - 大型 Widget 顯示中央氣象署雷達回波縮圖
 - 主頁在 Scripting 內開啟 QPESUMS 雷達頁，可查看動畫、縮放與圖層
 - Widget 被 iOS 喚醒時，若定位授權與系統條件允許，會重新定位；失敗時使用上次成功位置和快取天氣
+- 七日降雨機率優先使用 CWA；CWA 未提供數值的日期，以所在地經緯度向 Open-Meteo 補齊並標示 `*`
 
 ## 安裝
 
@@ -36,6 +37,8 @@
 可在設定頁填入 OpenAI-compatible 服務的 Base URL、API Key 與 Model。Base URL 例如 `https://api.example.com/v1`，不用輸入 `/chat/completions`。三項都填寫時，Large Widget 會將所在地的縣市／鄉鎮與中央氣象署預報文字傳至你指定的服務，產生一至兩句摘要；未設定或摘要失敗時，改顯示中央氣象署官方天氣概況。
 
 AI API Key 同樣只保存在 iPhone 的 Scripting App Group 資料夾，但目前並非加密保存；請只使用你信任的裝置與服務，且不要匯出或提交設定檔。
+
+若 AI Base URL 受 Cloudflare Access 保護，需讓 `/v1/*` bypass Access 登入頁，並由 AI API Key 驗證；否則端點會回傳 HTML，無法作為 OpenAI-compatible API 使用。
 
 ## 私人 GitHub Repository
 

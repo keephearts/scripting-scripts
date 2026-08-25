@@ -158,14 +158,23 @@ function Dashboard() {
       writeJson(CONFIG_PATH, nextConfig)
       await Widget.reloadUserWidgets()
       const aiConfigured = Boolean(nextConfig.aiBaseUrl?.trim() && nextConfig.aiApiKey?.trim() && nextConfig.aiModel?.trim())
+      const aiErrorStatus = forecast.aiError?.includes("Cloudflare Access")
+        ? "AI 網址需要 Cloudflare Access 權限，請改用可直接存取的 Base URL，或請服務管理者開放 API 存取"
+        : forecast.aiError?.includes("AI HTTP 401") || forecast.aiError?.includes("AI HTTP 403")
+          ? "AI 服務驗證失敗，請檢查 AI API Key"
+          : forecast.aiError?.includes("AI HTTP 404")
+            ? "找不到 AI 端點，請檢查 Base URL"
+            : forecast.aiError
+              ? "AI 摘要失敗，請檢查 Base URL、API Key 與 Model"
+              : "AI 摘要未取得"
       const helperStatus = forecast.weatherHelperSource === "ai"
         ? " · AI 摘要已更新"
         : forecast.weatherHelperOverview
           ? aiConfigured
-            ? " · AI 摘要未取得，顯示官方概況"
+            ? ` · ${aiErrorStatus}，顯示官方概況`
             : " · 顯示官方天氣概況"
           : aiConfigured
-            ? " · AI 與官方天氣概況暫時無法取得"
+            ? ` · ${aiErrorStatus}，官方天氣概況亦無法取得`
             : " · 官方天氣概況暫時無法取得"
       setStatus(`已更新 ${new Date(forecast.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}${helperStatus}`)
     } catch (error: any) {
@@ -237,7 +246,7 @@ function Dashboard() {
             <Text font="largeTitle">{weather.observation?.temperature ?? weather.current.temperature}°</Text>
             <VStack alignment="leading" spacing={2}>
               <Text>{weather.current.weather}</Text>
-              <Text font="caption" foregroundStyle="secondaryLabel">體感 {weather.current.feelsLike}° · 降雨 {weather.current.pop}%</Text>
+              <Text font="caption" foregroundStyle="secondaryLabel">體感 {weather.current.feelsLike}° · 降雨 {/^\d{1,3}$/.test(weather.current.pop) ? weather.current.pop + "%" : "—"}</Text>
             </VStack>
           </HStack> : <Text foregroundStyle="secondaryLabel">請輸入 API Key 後更新資料</Text>}
         </VStack>
@@ -249,7 +258,7 @@ function Dashboard() {
         <DetailRow icon="wind" label="風" value={`${weather?.observation?.windDirection ?? weather?.current.windDirection ?? "--"} ${weather?.observation?.windSpeed ?? weather?.current.windSpeed ?? "--"} m/s`} />
         <DetailRow icon="gauge.with.dots.needle.50percent" label="氣壓" value={`${weather?.observation?.pressure ?? "--"} hPa`} />
         <DetailRow icon="cloud.rain.fill" label="即時雨量" value={`${weather?.observation?.rain ?? "--"} mm`} />
-        <DetailRow icon="umbrella.fill" label="降雨機率" value={`${weather?.current.pop ?? "--"}%`} />
+        <DetailRow icon="umbrella.fill" label="降雨機率" value={/^\d{1,3}$/.test(weather?.current.pop ?? "") ? (weather?.current.pop ?? "") + "%" : "—"} />
         <DetailRow icon="heart.text.square" label="舒適度" value={weather?.current.comfort ?? "--"} />
       </Section>
 
@@ -260,7 +269,7 @@ function Dashboard() {
             <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
             <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
             <Text>{point.temperature}°</Text>
-            <Text foregroundStyle="secondaryLabel">{point.pop === "--" ? "" : "☔ " + point.pop + "%"}</Text>
+            <Text foregroundStyle="secondaryLabel">{/^\d{1,3}$/.test(point.pop) ? "☔ " + point.pop + "%" : ""}</Text>
           </HStack>
         }) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
@@ -271,7 +280,7 @@ function Dashboard() {
           <Image systemName={weatherIcon(point.weather)} frame={{ width: 22, height: 22 }} />
           <Text frame={{ maxWidth: "infinity" }}>{point.weather}</Text>
           <Text>{point.lowTemperature ? point.lowTemperature + "–" + point.temperature + "°" : point.temperature + "°"}</Text>
-          <Text foregroundStyle="secondaryLabel">☔ {point.pop}%</Text>
+          <Text foregroundStyle="secondaryLabel">☔ {/^\d{1,3}$/.test(point.pop) ? point.pop + "%" + (point.popSource === "open-meteo" ? "*" : "") : "—"}</Text>
         </HStack>) ?? <Text foregroundStyle="secondaryLabel">尚無預報資料</Text>}
       </Section>
 

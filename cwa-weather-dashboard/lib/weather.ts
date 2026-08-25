@@ -32,6 +32,7 @@ export type HourlyTemperaturePoint = {
   comfort: string
   weather: string
   pop: string
+  popSource?: "cwa" | "open-meteo"
 }
 
 export type WeatherData = {
@@ -55,6 +56,7 @@ export type WeatherData = {
   aiSummary?: string
   aiSummarySource?: string
   weatherHelperSource?: "ai" | "official"
+  aiError?: string
 }
 
 export const DATA_DIR = FileManager.appGroupDocumentsDirectory + "/CWAWeatherDashboard"
@@ -177,6 +179,10 @@ function firstValueInTimeRange(element: any, time: string, keys: string[]) {
   return index >= 0 ? firstValue(element, index, keys) : "--"
 }
 
+function numericPop(value: string) {
+  return /^\d{1,3}$/.test(value) ? value : "--"
+}
+
 function elementByName(elements: any[], name: string) {
   return elements.find(item => item.ElementName === name)
 }
@@ -293,15 +299,37 @@ async function fetchDataSet(dataSet: string, apiKey: string, locationName?: stri
       + "?Authorization=" + encodeURIComponent(apiKey.trim()) + "&downloadType=WEB&format=JSON"
     : "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + dataSet
       + "?format=JSON" + (locationName ? "&LocationName=" + encodeURIComponent(locationName) : "")
-  const response = await fetch(url, isWeatherHelper ? undefined : {
-    headers: { Authorization: apiKey.trim() },
-  })
+  const response = isWeatherHelper
+    ? await fetch(url)
+    : await fetch(url, { headers: { Authorization: apiKey.trim() } })
   if (!response.ok) throw new Error("天氣資料 HTTP " + response.status)
   const json = await response.json()
   if (json.success !== undefined && json.success !== "true" && json.success !== true) {
     throw new Error("中央氣象署未接受此 API Key 或查詢")
   }
   return json
+}
+
+async function fetchOpenMeteoDailyPop(latitude: number, longitude: number) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return new Map<string, string>()
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(String(latitude))
+    + "&longitude=" + encodeURIComponent(String(longitude))
+    + "&daily=precipitation_probability_max&forecast_days=7&timezone=Asia%2FTaipei"
+  const response = await fetch(url)
+  if (!response.ok) throw new Error("Open-Meteo HTTP " + response.status)
+  const json = await response.json()
+  const dates = Array.isArray(json.daily?.time) ? json.daily.time : []
+  const values = Array.isArray(json.daily?.precipitation_probability_max)
+    ? json.daily.precipitation_probability_max
+    : []
+  const result = new Map<string, string>()
+  for (let index = 0; index < dates.length; index++) {
+    const value = values[index]
+    if (typeof dates[index] === "string" && Number.isFinite(Number(value))) {
+      result.set(dates[index], String(Math.round(Number(value))))
+    }
+  }
+  return result
 }
 
 function helperLocations(json: any): any[] {
@@ -323,22 +351,31 @@ function helperDescriptions(location: any): string[] {
 async function fetchWeatherHelper(config: Config) {
   const dataSet = WEATHER_HELPER_DATASETS[normalizeCity(config.city)]
   if (!dataSet) return { overview: "", national: "" }
-  const [cityJson, nationalJson] = await Promise.all([
-    fetchDataSet(dataSet, config.apiKey),
-    fetchDataSet("F-C0032-031", config.apiKey),
-  ])
+  const cityJson = await fetchDataSet(dataSet, config.apiKey)
   const city = normalizeCity(config.city)
   const cityLocation = helperLocations(cityJson).find(
     location => normalizeCity(location.locationName ?? location.LocationName ?? "") === city,
   )
   const overview = helperDescriptions(cityLocation)[0] ?? ""
-  const nationalLocations = helperLocations(nationalJson)
-  const nationalLocation = nationalLocations.find(
-    location => normalizeCity(location.locationName ?? location.LocationName ?? "") === city,
-  )
-  const national = nationalLocation
-    ? helperDescriptions(nationalLocation).join("\n")
-    : nationalLocations.flatMap(helperDescriptions).filter(text => text.includes(city)).join("\n")
+  let national = ""
+  try {
+    const nationalJson = await fetchDataSet("F-C0032-031", config.apiKey)
+    const resource = Array.isArray(nationalJson.cwaopendata?.dataset?.Resource)
+      ? nationalJson.cwaopendata.dataset.Resource[0]
+      : nationalJson.cwaopendata?.dataset?.Resource
+    const productUrl = typeof resource?.ProductURL === "string" ? resource.ProductURL : ""
+    if (productUrl) {
+      const response = await fetch(productUrl)
+      if (response.ok) {
+        const text = normalizeCity(await response.text())
+        const terms = [city, config.district.trim()].filter(Boolean)
+        national = text.split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => terms.some(term => line.includes(term)))
+          .join("\n")
+      }
+    }
+  } catch {}
   return { overview, national }
 }
 
@@ -369,9 +406,18 @@ async function summarizeWithAi(config: Config, data: WeatherData, source: string
     }),
   })
   if (!response.ok) throw new Error("AI HTTP " + response.status)
-  const json = await response.json()
+  const responseText = await response.text()
+  let json: any
+  try {
+    json = JSON.parse(responseText)
+  } catch {
+    throw new Error(responseText.trimStart().startsWith("<")
+      ? "AI 端點被 Cloudflare Access 攔截"
+      : "AI 端點未回傳 JSON")
+  }
   const summary = String(json.choices?.[0]?.message?.content ?? "").trim()
-  return summary || undefined
+  if (!summary) throw new Error("AI 回應沒有摘要內容")
+  return summary
 }
 
 export async function fetchForecast(config: Config, cached?: WeatherData): Promise<WeatherData> {
@@ -415,8 +461,24 @@ export async function fetchForecast(config: Config, cached?: WeatherData): Promi
     (location: any) => location.LocationName === place.district,
   )
   if (!weeklySelected) throw new Error("找不到七日預報資料")
-  const daily = weeklyDailyFrom(weeklySelected.WeatherElement ?? [])
-  if (daily.length < 7) throw new Error("中央氣象署回傳的七日預報格式不完整")
+  const cwaDaily = weeklyDailyFrom(weeklySelected.WeatherElement ?? [])
+  if (cwaDaily.length < 7) throw new Error("中央氣象署回傳的七日預報格式不完整")
+  const latitude = Number(selected.Latitude ?? config.latitude)
+  const longitude = Number(selected.Longitude ?? config.longitude)
+  const needsSupplementalPop = cwaDaily.some(point => numericPop(point.pop) === "--")
+  const supplementalPop = needsSupplementalPop
+    ? await fetchOpenMeteoDailyPop(latitude, longitude).catch(() => new Map<string, string>())
+    : new Map<string, string>()
+  const daily = cwaDaily.map(point => {
+    const cwaPop = numericPop(point.pop)
+    if (cwaPop !== "--") return { ...point, pop: cwaPop, popSource: "cwa" as const }
+    const fallbackPop = supplementalPop.get(point.start.slice(0, 10)) ?? "--"
+    return {
+      ...point,
+      pop: numericPop(fallbackPop),
+      popSource: numericPop(fallbackPop) === "--" ? undefined : "open-meteo" as const,
+    }
+  })
 
   const data: WeatherData = {
     city: normalizeCity(group?.LocationsName ?? place.city),
@@ -441,9 +503,15 @@ export async function fetchForecast(config: Config, cached?: WeatherData): Promi
     : ""
   const ai = aiConfiguration(config)
   const aiSummarySource = ai && source ? ai.baseUrl + "\n" + ai.model + "\n" + source : undefined
-  const aiSummary = aiSummarySource === cached?.aiSummarySource
-    ? cached?.aiSummary
-    : await summarizeWithAi(config, data, source).catch(() => undefined)
+  let aiSummary = aiSummarySource === cached?.aiSummarySource ? cached?.aiSummary : undefined
+  let aiError: string | undefined
+  if (aiSummarySource && aiSummarySource !== cached?.aiSummarySource) {
+    try {
+      aiSummary = await summarizeWithAi(config, data, source)
+    } catch (error: any) {
+      aiError = error?.message ?? String(error)
+    }
+  }
   const weatherHelperSource = aiSummary ? "ai" : overview ? "official" : undefined
-  return { ...data, weatherHelperOverview: overview, aiSummary, aiSummarySource: aiSummary ? aiSummarySource : undefined, weatherHelperSource }
+  return { ...data, weatherHelperOverview: overview, aiSummary, aiSummarySource: aiSummary ? aiSummarySource : undefined, weatherHelperSource, aiError }
 }

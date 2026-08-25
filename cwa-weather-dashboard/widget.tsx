@@ -53,21 +53,23 @@ function nextEightHours(data: WeatherData): TemperaturePoint[] {
 }
 
 function HourlyTemperatureColumn({ point }: { point: TemperaturePoint }) {
+  const pop = /^\d{1,3}$/.test(point.pop) ? point.pop + "%" : " "
   return <VStack spacing={2} frame={{ maxWidth: "infinity" }}>
     <Text font="caption2">{formatHour(point.start)}</Text>
     <Image systemName={weatherIcon(point.weather)} frame={{ width: 15, height: 15 }} />
     <Text font="caption" bold>{point.temperature}°</Text>
-    <Text font="caption2" foregroundStyle="#aab8cd">{point.pop === "--" ? " " : point.pop + "%"}</Text>
+    <Text font="caption2" foregroundStyle="#aab8cd">{pop}</Text>
   </VStack>
 }
 
 function DayColumn({ point }: { point: ForecastPoint }) {
-  return <VStack spacing={2} frame={{ maxWidth: "infinity" }}>
+  const pop = /^\d{1,3}$/.test(point.pop) ? point.pop + "%" : "—"
+  return <VStack spacing={1} frame={{ maxWidth: "infinity" }}>
     <Text font="caption2" bold>{formatDay(point.start)}</Text>
     <Image systemName={weatherIcon(point.weather)} frame={{ width: 17, height: 17 }} />
     <Text font="caption2">{point.lowTemperature === "--" ? " " : "↓" + point.lowTemperature + "°"}</Text>
     <Text font="caption2">{"↑" + point.temperature + "°"}</Text>
-    <Text font="caption2" foregroundStyle="#aab8cd">{point.pop === "--" ? " " : point.pop + "%"}</Text>
+    <Text font="caption2" foregroundStyle="#aab8cd">{pop}{point.popSource === "open-meteo" ? "*" : ""}</Text>
   </VStack>
 }
 
@@ -97,7 +99,7 @@ function SmallWidget({ data }: { data: WeatherData }) {
     <Text font="largeTitle">{data.observation?.temperature ?? data.current.temperature}°</Text>
     <Text>{data.current.weather}</Text>
     <HStack>
-      <Text font="caption">☔ {data.current.pop}%</Text>
+      <Text font="caption">☔ {/^\d{1,3}$/.test(data.current.pop) ? data.current.pop + "%" : "—"}</Text>
       <Spacer />
       <Text font="caption">{data.current.comfort}</Text>
     </HStack>
@@ -134,6 +136,7 @@ function LargeWidget({ data }: { data: WeatherData }) {
   const hours = nextEightHours(data)
   const hourTitle = hours.length >= 8 ? "未來 8 小時" : "目前可用預報"
   const dailyTitle = data.daily.length >= 7 ? "未來七日" : "目前可用預報"
+  const usesSupplementalPop = data.daily.some(point => point.popSource === "open-meteo")
   const helperSummary = data.aiSummary ?? data.weatherHelperOverview
   const helperTitle = data.weatherHelperSource === "ai"
     ? "AI 天氣小幫手"
@@ -144,7 +147,7 @@ function LargeWidget({ data }: { data: WeatherData }) {
     ? widgetSummary(helperSummary)
     : "暫時無法取得，將於下次更新重試。"
   return <VStack alignment="leading" spacing={0} background="#101a2d" foregroundStyle="white" frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
-    <VStack alignment="leading" spacing={4} padding={14}>
+    <VStack alignment="leading" spacing={3} padding={10}>
       <HStack>
         <VStack alignment="leading" spacing={3}>
         <Text font="title2" bold>{data.city}{data.district}</Text>
@@ -162,18 +165,17 @@ function LargeWidget({ data }: { data: WeatherData }) {
         <Text font="caption" foregroundStyle="#d1dced">雨量 {data.observation?.rain ?? "--"} mm · 氣壓 {data.observation?.pressure ?? "--"} hPa</Text>
       </HStack>
     </VStack>
-    <VStack alignment="leading" spacing={4} padding={14} background="#142039">
+    <VStack alignment="leading" spacing={3} padding={10} background="#142039">
       <Text font="caption2" foregroundStyle="#b7c6db">{helperTitle}</Text>
       <Text font="caption" lineLimit={2}>{helperText}</Text>
     </VStack>
-    <VStack alignment="leading" spacing={6} padding={14} background="#142039">
+    <VStack alignment="leading" spacing={4} padding={10} background="#142039">
       <Text font="caption2" foregroundStyle="#b7c6db">{hourTitle}</Text>
       <HStack>{hours.map(point => <HourlyTemperatureColumn key={point.start} point={point} />)}</HStack>
     </VStack>
-    <VStack alignment="leading" spacing={5} padding={14}>
-      <Text font="caption2" foregroundStyle="#b7c6db">{dailyTitle}</Text>
+    <VStack alignment="leading" spacing={3} padding={10}>
+      <Text font="caption2" foregroundStyle="#b7c6db">{dailyTitle}{usesSupplementalPop ? " · *Open-Meteo 降雨機率" : ""}</Text>
       <HStack spacing={0}>{data.daily.slice(0, 7).map(point => <DayColumn key={point.start} point={point} />)}</HStack>
-      <Text font="caption2" foregroundStyle="#94a3b8">更新 {new Date(data.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</Text>
     </VStack>
   </VStack>
 }
