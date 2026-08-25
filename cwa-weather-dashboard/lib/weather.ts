@@ -272,7 +272,7 @@ function weeklyDailyFrom(elements: any[]): ForecastPoint[] {
       temperature: firstValue(high, daytimeIndex, ["MaxTemperature", "Temperature"]),
       lowTemperature: firstValue(low, daytimeIndex, ["MinTemperature", "Temperature"]),
       feelsLike: "--",
-      pop: firstValue(pop, daytimeIndex, ["ProbabilityOfPrecipitation"]),
+      pop: firstValueInTimeRange(pop, start, ["ProbabilityOfPrecipitation"]),
       humidity: "--",
       windSpeed: firstValue(windSpeed, daytimeIndex, ["WindSpeed"]),
       windDirection: firstValue(windDirection, daytimeIndex, ["WindDirection"]),
@@ -287,10 +287,15 @@ function localizeTown(city: string, district: string) {
 }
 
 async function fetchDataSet(dataSet: string, apiKey: string, locationName?: string) {
-  const url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + dataSet
-    + "?Authorization=" + encodeURIComponent(apiKey.trim()) + "&format=JSON"
-    + (locationName ? "&LocationName=" + encodeURIComponent(locationName) : "")
-  const response = await fetch(url)
+  const isWeatherHelper = dataSet.startsWith("F-C0032-")
+  const url = isWeatherHelper
+    ? "https://opendata.cwa.gov.tw/fileapi/v1/opendataapi/" + dataSet
+      + "?Authorization=" + encodeURIComponent(apiKey.trim()) + "&downloadType=WEB&format=JSON"
+    : "https://opendata.cwa.gov.tw/api/v1/rest/datastore/" + dataSet
+      + "?format=JSON" + (locationName ? "&LocationName=" + encodeURIComponent(locationName) : "")
+  const response = await fetch(url, isWeatherHelper ? undefined : {
+    headers: { Authorization: apiKey.trim() },
+  })
   if (!response.ok) throw new Error("天氣資料 HTTP " + response.status)
   const json = await response.json()
   if (json.success !== undefined && json.success !== "true" && json.success !== true) {
@@ -300,7 +305,7 @@ async function fetchDataSet(dataSet: string, apiKey: string, locationName?: stri
 }
 
 function helperLocations(json: any): any[] {
-  const records = json.records ?? json.cwaopendata?.Dataset ?? json.cwbopendata?.dataset
+  const records = json.records ?? json.cwaopendata?.dataset ?? json.cwaopendata?.Dataset ?? json.cwbopendata?.dataset
   const locations = records?.location ?? records?.Location ?? records?.Locations?.Location
     ?? records?.Locations?.[0]?.Location ?? []
   return Array.isArray(locations) ? locations : [locations]
@@ -422,9 +427,15 @@ export async function fetchForecast(config: Config, cached?: WeatherData): Promi
     hourlyTemperature,
     daily,
   }
+  const townOverview = firstValueInTimeRange(
+    elementByName(elements, "天氣預報綜合描述"),
+    data.current.start,
+    ["WeatherDescription"],
+  )
   const helper = await fetchWeatherHelper(config).catch(() => ({ overview: "", national: "" }))
   const cachedPlaceMatches = cached?.city === data.city && cached?.district === data.district
-  const overview = helper.overview || (cachedPlaceMatches ? cached?.weatherHelperOverview : undefined)
+  const overview = helper.overview || (townOverview === "--" ? "" : townOverview)
+    || (cachedPlaceMatches ? cached?.weatherHelperOverview : undefined)
   const source = overview
     ? [data.city, data.district, overview, helper.national].filter(Boolean).join("\n")
     : ""

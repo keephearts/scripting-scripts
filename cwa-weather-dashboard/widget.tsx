@@ -62,13 +62,11 @@ function HourlyTemperatureColumn({ point }: { point: TemperaturePoint }) {
 }
 
 function DayColumn({ point }: { point: ForecastPoint }) {
-  const range = point.lowTemperature
-    ? point.lowTemperature + "–" + point.temperature + "°"
-    : point.temperature + "°"
   return <VStack spacing={2} frame={{ maxWidth: "infinity" }}>
     <Text font="caption2" bold>{formatDay(point.start)}</Text>
     <Image systemName={weatherIcon(point.weather)} frame={{ width: 17, height: 17 }} />
-    <Text font="caption2">{range}</Text>
+    <Text font="caption2">{point.lowTemperature === "--" ? " " : "↓" + point.lowTemperature + "°"}</Text>
+    <Text font="caption2">{"↑" + point.temperature + "°"}</Text>
     <Text font="caption2" foregroundStyle="#aab8cd">{point.pop === "--" ? " " : point.pop + "%"}</Text>
   </VStack>
 }
@@ -146,21 +144,24 @@ function LargeWidget({ data }: { data: WeatherData }) {
     ? widgetSummary(helperSummary)
     : "暫時無法取得，將於下次更新重試。"
   return <VStack alignment="leading" spacing={0} background="#101a2d" foregroundStyle="white" frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
-    <HStack padding={16}>
-      <VStack alignment="leading" spacing={3}>
+    <VStack alignment="leading" spacing={4} padding={14}>
+      <HStack>
+        <VStack alignment="leading" spacing={3}>
         <Text font="title2" bold>{data.city}{data.district}</Text>
         <Text font="caption" foregroundStyle="#d1dced">{data.current.weather} · 體感 {data.current.feelsLike}°</Text>
-      </VStack>
-      <Spacer />
-      <VStack alignment="trailing" spacing={6}>
-        <HStack>
-          <Image systemName={weatherIcon(data.current.weather)} frame={{ width: 34, height: 34 }} />
+        </VStack>
+        <Spacer />
+        <HStack spacing={4}>
+          <Image systemName={weatherIcon(data.current.weather)} frame={{ width: 24, height: 24 }} />
           <Text font="largeTitle">{data.observation?.temperature ?? data.current.temperature}°</Text>
         </HStack>
+      </HStack>
+      <HStack>
         <Text font="caption" foregroundStyle="#d1dced">濕度 {data.observation?.humidity ?? data.current.humidity}% · 風 {data.observation?.windSpeed ?? data.current.windSpeed} m/s</Text>
+        <Spacer />
         <Text font="caption" foregroundStyle="#d1dced">雨量 {data.observation?.rain ?? "--"} mm · 氣壓 {data.observation?.pressure ?? "--"} hPa</Text>
-      </VStack>
-    </HStack>
+      </HStack>
+    </VStack>
     <VStack alignment="leading" spacing={4} padding={14} background="#142039">
       <Text font="caption2" foregroundStyle="#b7c6db">{helperTitle}</Text>
       <Text font="caption" lineLimit={2}>{helperText}</Text>
@@ -169,10 +170,9 @@ function LargeWidget({ data }: { data: WeatherData }) {
       <Text font="caption2" foregroundStyle="#b7c6db">{hourTitle}</Text>
       <HStack>{hours.map(point => <HourlyTemperatureColumn key={point.start} point={point} />)}</HStack>
     </VStack>
-    <Spacer />
-    <VStack alignment="leading" spacing={7} padding={14}>
+    <VStack alignment="leading" spacing={5} padding={14}>
       <Text font="caption2" foregroundStyle="#b7c6db">{dailyTitle}</Text>
-      <HStack>{data.daily.slice(0, 7).map(point => <DayColumn key={point.start} point={point} />)}</HStack>
+      <HStack spacing={0}>{data.daily.slice(0, 7).map(point => <DayColumn key={point.start} point={point} />)}</HStack>
       <Text font="caption2" foregroundStyle="#94a3b8">更新 {new Date(data.updatedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}</Text>
     </VStack>
   </VStack>
